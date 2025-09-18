@@ -1,7 +1,7 @@
 # Page Loader
 
 [![Actions Status](https://github.com/Alex-korr/backend-project-4/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/Alex-korr/backend-project-4/actions)
-[![Node CI](https://github.com/Alex-korr/backend-project-4/actions/workflows/nodejs.yml/badge.svg)](https://github.com/Alex-korr/backend-project-4/actions)
+[![Build Status](https://github.com/Alex-korr/backend-project-4/actions/workflows/build.yml/badge.svg)](https://github.com/Alex-korr/backend-project-4/actions)
 
 ## Description
 
