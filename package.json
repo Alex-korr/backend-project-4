@@ -25,7 +25,7 @@
     "page-loader": "bin/page-loader.js"
   },
   "scripts": {
-    "test": "jest"
+    "test": "node --experimental-vm-modules node_modules/.bin/jest"
   },
   "dependencies": {
     "axios": "^1.1.3",

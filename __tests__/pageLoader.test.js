@@ -100,4 +100,54 @@ describe('pageLoader', () => {
     const savedImage = await fs.readFile(imagePath)
     expect(savedImage).toEqual(imageBuffer)
   })
+
+  // Test 3: Download all local resources (CSS, JS, HTML, images)
+  it('should download all local resources and modify HTML', async () => {
+    // Setup mocks for all resources
+    const allResourcesHtml = await readFixture('expected-with-all-resources.html')
+    const cssContent = await readFixture('application.css')
+    const jsContent = await readFixture('runtime.js')
+    const canonicalHtml = await readFixture('courses.html')
+    const imageBuffer = await fs.readFile(getFixturePath('nodejs.png'))
+
+    // Mock main page
+    nock('https://ru.hexlet.io')
+      .get('/courses')
+      .reply(200, allResourcesHtml)
+
+    // Mock all local resources
+    nock('https://ru.hexlet.io')
+      .get('/assets/application.css')
+      .reply(200, cssContent)
+
+    nock('https://ru.hexlet.io')
+      .get('/packs/js/runtime.js')
+      .reply(200, jsContent)
+
+    nock('https://ru.hexlet.io')
+      .get('/courses')
+      .reply(200, canonicalHtml)
+
+    nock('https://ru.hexlet.io')
+      .get('/assets/professions/nodejs.png')
+      .reply(200, imageBuffer)
+
+    // Run page-loader
+    const outputPath = path.join(tmpDir, expectedFilename)
+    await load(url, tmpDir)
+
+    // 1. Check that HTML was modified correctly
+    const savedHtml = await fs.readFile(outputPath, 'utf-8')
+    const expectedModifiedHtml = await readFixture('expected-all-resources-modified.html')
+    expect(savedHtml.trim()).toBe(expectedModifiedHtml)
+
+    // 2. Check that all 4 files were downloaded
+    const resourceDir = path.join(tmpDir, 'ru-hexlet-io-courses_files')
+    const files = await fs.readdir(resourceDir)
+    expect(files).toHaveLength(4)
+
+    // 3. Check that external links were not modified
+    expect(savedHtml).toContain('https://cdn2.hexlet.io/assets/menu.css')
+    expect(savedHtml).toContain('https://js.stripe.com/v3/')
+  })
 })
