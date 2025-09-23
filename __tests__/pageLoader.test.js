@@ -3,7 +3,16 @@ import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import nock from 'nock'
+import debug from 'debug'
 import load from '../src/pageLoader.js'
+
+// Enable nock debug logging
+const nockLog = debug('nock')
+nock.recorder.rec({
+  logging: (content) => {
+    nockLog('HTTP Mock: %s', content)
+  },
+})
 
 // Get __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url)

@@ -3,6 +3,9 @@
 import { program } from 'commander'
 import { resolve } from 'node:path'
 import load from '../src/pageLoader.js'
+import debug from 'debug'
+
+const log = debug('page-loader')
 
 // Generate directory name from URL
 const generateDirName = (url) => {
@@ -18,14 +21,22 @@ program
   .argument('<url>', 'URL of the page to download')
   .option('-o --output [dir]', 'output directory (defaults to URL-based name)')
   .action(async (url, options) => {
+    log('Page-loader started with URL: %s', url)
+
     // Use URL-based directory name if no output specified
     const defaultDir = generateDirName(url)
     const outputPath = resolve(options.output || defaultDir)
+
+    log('Output directory: %s', outputPath)
+    log('Using %s output directory', options.output ? 'specified' : 'auto-generated')
+
     try {
       const filePath = await load(url, outputPath)
+      log('Operation completed successfully: %s', filePath)
       console.log(filePath)
     }
     catch (error) {
+      log('Operation failed: %s', error.message)
       console.error(`Error: ${error.message}`)
       process.exit(1)
     }
