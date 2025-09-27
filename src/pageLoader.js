@@ -35,14 +35,14 @@ if (debug.enabled('page-loader')) {
 const generateFilename = (url) => {
   const urlObj = new URL(url)
   const fullPath = `${urlObj.hostname}${urlObj.pathname}`.replace(/\/$/, '')
-  const filename = fullPath.replace(/[^a-zA-Z0-9]/g, '-')
+  const filename = fullPath.replaceAll(/[^a-zA-Z0-9]/g, '-')
   return `${filename}.html`
 }
 
 const generateResourceDirName = (url) => {
   const urlObj = new URL(url)
   const fullPath = `${urlObj.hostname}${urlObj.pathname}`.replace(/\/$/, '')
-  const dirName = fullPath.replace(/[^a-zA-Z0-9]/g, '-')
+  const dirName = fullPath.replaceAll(/[^a-zA-Z0-9]/g, '-')
   return `${dirName}_files`
 }
 
@@ -57,7 +57,7 @@ const generateResourceFileName = (resourceUrl) => {
   }
 
   const pathWithoutExtension = urlObj.pathname.replace(fileExtension, '')
-  const cleanPath = `${urlObj.hostname}${pathWithoutExtension}`.replace(/[^a-zA-Z0-9]/g, '-')
+  const cleanPath = `${urlObj.hostname}${pathWithoutExtension}`.replaceAll(/[^a-zA-Z0-9]/g, '-')
   return cleanPath + fileExtension
 }
 
@@ -105,12 +105,7 @@ const downloadTextResource = async (resourceUrl) => {
   }
 }
 
-const processAllResources = async (html, pageUrl, outputDir) => {
-  const baseUrl = new URL(pageUrl)
-  const resourceDirName = generateResourceDirName(pageUrl)
-  const resourceDir = join(outputDir, resourceDirName)
-
-  // Create directory for resources
+const createResourceDirectory = async (resourceDir) => {
   log('Creating resource directory: %s', resourceDir)
   try {
     await mkdir(resourceDir, { recursive: true })
@@ -124,25 +119,52 @@ const processAllResources = async (html, pageUrl, outputDir) => {
     }
     throw new Error(`Failed to create directory ${resourceDir}: ${error.message}`)
   }
+}
 
-  // Use cheerio to find resources, but keep original HTML for replacements
-  const $ = cheerio.load(html)
-  let modifiedHtml = html
+const processResourceType = async ($, selector, attrName, resourceDir, resourceDirName, baseUrl, pageUrl, downloadFn) => {
+  const elements = selector
+  const promises = []
+  log('Found %d %s to process', elements.length, attrName)
 
-  // Process images in parallel
+  for (const element of elements) {
+    const attr = $(element).attr(attrName)
+
+    if (attr) {
+      const resourceUrl = new URL(attr, baseUrl).href
+
+      if (isLocalResource(resourceUrl, pageUrl)) {
+        const promise = (async () => {
+          const data = await downloadFn(resourceUrl)
+          const fileName = generateResourceFileName(resourceUrl)
+          const resourcePath = join(resourceDir, fileName)
+          await writeFile(resourcePath, data)
+          const newAttr = join(resourceDirName, fileName)
+          return { oldAttr: attr, newAttr }
+        })()
+
+        promises.push(promise)
+      }
+    }
+  }
+
+  if (promises.length > 0) {
+    log('Starting parallel download of %d %s', promises.length, attrName)
+  }
+
+  return Promise.all(promises)
+}
+
+const processImages = async ($, resourceDir, resourceDirName, baseUrl, pageUrl) => {
   const images = $('img')
   const imagePromises = []
-  log('Found %d images to process', images.length)
 
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i]
+  for (const img of images) {
     const src = $(img).attr('src')
 
     if (src) {
       const resourceUrl = new URL(src, baseUrl).href
 
       if (isLocalResource(resourceUrl, pageUrl)) {
-        // Create promise for parallel execution
         const imagePromise = (async () => {
           const imageData = await downloadImage(resourceUrl)
           const fileName = generateResourceFileName(resourceUrl)
@@ -157,14 +179,13 @@ const processAllResources = async (html, pageUrl, outputDir) => {
     }
   }
 
-  // Wait for all images to download in parallel with progress
+  // Handle visual progress only for images (the most visible part)
   let imageResults = []
   if (imagePromises.length > 0) {
     log('Starting parallel download of %d images', imagePromises.length)
 
     // Disable visual progress in test environment
     if (process.env.NODE_ENV === 'test' || process.env.npm_lifecycle_event === 'test') {
-      // In test mode, just use Promise.all without visual progress
       imageResults = await Promise.all(imagePromises)
     }
     else {
@@ -179,134 +200,46 @@ const processAllResources = async (html, pageUrl, outputDir) => {
         rendererOptions: { collapse: false },
       })
 
-      // Run listr for visual progress, but get results from promises
       await imageTaskList.run()
       imageResults = await Promise.all(imagePromises)
     }
-  } // Apply all replacements to HTML
+  }
+
+  return imageResults
+}
+
+const processAllResources = async (html, pageUrl, outputDir) => {
+  const baseUrl = new URL(pageUrl)
+  const resourceDirName = generateResourceDirName(pageUrl)
+  const resourceDir = join(outputDir, resourceDirName)
+
+  await createResourceDirectory(resourceDir)
+
+  // Use cheerio to find resources, but keep original HTML for replacements
+  const $ = cheerio.load(html)
+  let modifiedHtml = html
+
+  // Process each type of resource
+  const imageResults = await processImages($, resourceDir, resourceDirName, baseUrl, pageUrl)
+  const cssResults = await processResourceType($, $('link[rel="stylesheet"]'), 'href', resourceDir, resourceDirName, baseUrl, pageUrl, downloadTextResource)
+  const jsResults = await processResourceType($, $('script[src]'), 'src', resourceDir, resourceDirName, baseUrl, pageUrl, downloadTextResource)
+  const canonicalResults = await processResourceType($, $('link[rel="canonical"]'), 'href', resourceDir, resourceDirName, baseUrl, pageUrl, downloadTextResource)
+
+  // Apply all replacements to HTML
   for (const { src, newSrc } of imageResults) {
     modifiedHtml = modifiedHtml.replace(src, newSrc)
   }
 
-  // Process CSS links in parallel
-  const links = $('link[rel="stylesheet"]')
-  const cssPromises = []
-  log('Found %d CSS files to process', links.length)
-
-  for (let i = 0; i < links.length; i++) {
-    const link = links[i]
-    const href = $(link).attr('href')
-
-    if (href) {
-      const resourceUrl = new URL(href, baseUrl).href
-
-      if (isLocalResource(resourceUrl, pageUrl)) {
-        // Create promise for parallel execution
-        const cssPromise = (async () => {
-          const cssData = await downloadTextResource(resourceUrl)
-          const fileName = generateResourceFileName(resourceUrl)
-          const cssPath = join(resourceDir, fileName)
-          await writeFile(cssPath, cssData)
-          const newHref = join(resourceDirName, fileName)
-          return { href, newHref }
-        })()
-
-        cssPromises.push(cssPromise)
-      }
-    }
+  for (const { oldAttr, newAttr } of cssResults) {
+    modifiedHtml = modifiedHtml.replace(`href="${oldAttr}" />`, `href="${newAttr}">`)
   }
 
-  // Wait for all CSS files to download in parallel
-  if (cssPromises.length > 0) {
-    log('Starting parallel download of %d CSS files', cssPromises.length)
-  }
-  const cssResults = await Promise.all(cssPromises)
-
-  // Apply all CSS replacements to HTML
-  for (const { href, newHref } of cssResults) {
-    // Replace the href attribute more precisely to handle the " />" case
-    modifiedHtml = modifiedHtml.replace(
-      `href="${href}" />`,
-      `href="${newHref}">`,
-    )
+  for (const { oldAttr, newAttr } of jsResults) {
+    modifiedHtml = modifiedHtml.replace(oldAttr, newAttr)
   }
 
-  // Process JS scripts in parallel
-  const scripts = $('script[src]')
-  const jsPromises = []
-  log('Found %d JS files to process', scripts.length)
-
-  for (let i = 0; i < scripts.length; i++) {
-    const script = scripts[i]
-    const src = $(script).attr('src')
-
-    if (src) {
-      const resourceUrl = new URL(src, baseUrl).href
-
-      if (isLocalResource(resourceUrl, pageUrl)) {
-        // Create promise for parallel execution
-        const jsPromise = (async () => {
-          const jsData = await downloadTextResource(resourceUrl)
-          const fileName = generateResourceFileName(resourceUrl)
-          const jsPath = join(resourceDir, fileName)
-          await writeFile(jsPath, jsData)
-          const newSrc = join(resourceDirName, fileName)
-          return { src, newSrc }
-        })()
-
-        jsPromises.push(jsPromise)
-      }
-    }
-  }
-
-  // Wait for all JS files to download in parallel
-  if (jsPromises.length > 0) {
-    log('Starting parallel download of %d JS files', jsPromises.length)
-  }
-  const jsResults = await Promise.all(jsPromises)
-
-  // Apply all JS replacements to HTML
-  for (const { src, newSrc } of jsResults) {
-    modifiedHtml = modifiedHtml.replace(src, newSrc)
-  }
-
-  // Process canonical links in parallel
-  const canonicals = $('link[rel="canonical"]')
-  const canonicalPromises = []
-  log('Found %d canonical links to process', canonicals.length)
-
-  for (let i = 0; i < canonicals.length; i++) {
-    const canonical = canonicals[i]
-    const href = $(canonical).attr('href')
-
-    if (href) {
-      const resourceUrl = new URL(href, baseUrl).href
-
-      if (isLocalResource(resourceUrl, pageUrl)) {
-        // Create promise for parallel execution
-        const canonicalPromise = (async () => {
-          const htmlData = await downloadTextResource(resourceUrl)
-          const fileName = generateResourceFileName(resourceUrl)
-          const htmlPath = join(resourceDir, fileName)
-          await writeFile(htmlPath, htmlData)
-          const newHref = join(resourceDirName, fileName)
-          return { href, newHref }
-        })()
-
-        canonicalPromises.push(canonicalPromise)
-      }
-    }
-  }
-
-  // Wait for all canonical links to download in parallel
-  if (canonicalPromises.length > 0) {
-    log('Starting parallel download of %d canonical links', canonicalPromises.length)
-  }
-  const canonicalResults = await Promise.all(canonicalPromises)
-
-  // Apply all canonical replacements to HTML
-  for (const { href, newHref } of canonicalResults) {
-    modifiedHtml = modifiedHtml.replace(href, newHref)
+  for (const { oldAttr, newAttr } of canonicalResults) {
+    modifiedHtml = modifiedHtml.replace(oldAttr, newAttr)
   }
 
   const totalResources = imageResults.length + cssResults.length + jsResults.length + canonicalResults.length
@@ -315,20 +248,13 @@ const processAllResources = async (html, pageUrl, outputDir) => {
   return modifiedHtml
 }
 
-const load = async (url, outputDir) => {
-  log('Starting page load: %s', url)
-  log('Output directory: %s', outputDir)
-
-  const filename = generateFilename(url)
-  const filepath = resolve(outputDir, filename)
-
-  // Download HTML
+const downloadPageContent = async (url) => {
   log('Loading page content...')
-  let response, html
   try {
-    response = await axios.get(url)
-    html = response.data
+    const response = await axios.get(url)
+    const html = response.data
     log('Page loaded successfully, size: %d bytes', html.length)
+    return html
   }
   catch (error) {
     if (error.response?.status === 403) {
@@ -351,24 +277,9 @@ const load = async (url, outputDir) => {
     }
     throw new Error(`Network error: ${url} - ${error.message}`)
   }
+}
 
-  // Check if there are any resources in HTML
-  const hasResources = html.includes('<img') || html.includes('<link') || html.includes('<script')
-  log('Parsing HTML content')
-
-  let processedHtml
-  if (hasResources) {
-    log('Resources found in HTML, starting resource processing')
-    // Process all resources
-    processedHtml = await processAllResources(html, url, outputDir)
-  }
-  else {
-    log('No resources found in HTML')
-    // Leave HTML as is
-    processedHtml = html
-  }
-
-  // Save processed HTML
+const saveProcessedHtml = async (filepath, processedHtml, outputDir) => {
   log('Saving processed HTML to: %s', filepath)
   try {
     await writeFile(filepath, processedHtml)
@@ -386,6 +297,34 @@ const load = async (url, outputDir) => {
     }
     throw new Error(`File system error: ${error.message}`)
   }
+}
+
+const load = async (url, outputDir) => {
+  log('Starting page load: %s', url)
+  log('Output directory: %s', outputDir)
+
+  const filename = generateFilename(url)
+  const filepath = resolve(outputDir, filename)
+
+  // Download HTML
+  const html = await downloadPageContent(url)
+
+  // Check if there are any resources in HTML and process accordingly
+  const hasResources = html.includes('<img') || html.includes('<link') || html.includes('<script')
+  log('Parsing HTML content')
+
+  let processedHtml
+  if (hasResources) {
+    log('Resources found in HTML, starting resource processing')
+    processedHtml = await processAllResources(html, url, outputDir)
+  }
+  else {
+    log('No resources found in HTML')
+    processedHtml = html
+  }
+
+  // Save processed HTML
+  await saveProcessedHtml(filepath, processedHtml, outputDir)
 
   return filepath
 }
