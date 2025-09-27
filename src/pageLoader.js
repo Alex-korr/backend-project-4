@@ -88,7 +88,7 @@ const downloadImage = async (imageUrl) => {
 
 const downloadTextResource = async (resourceUrl) => {
   try {
-    const response = await axios.get(resourceUrl)
+    const response = await axios.get(resourceUrl, { responseType: 'arraybuffer' })
     return response.data
   }
   catch (error) {
