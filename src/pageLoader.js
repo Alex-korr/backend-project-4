@@ -341,6 +341,20 @@ const load = async (url, outputDir = process.cwd()) => {
   log('Starting page load: %s', url)
   log('Output directory: %s', outputDir)
 
+  // Ensure output directory exists
+  try {
+    await access(outputDir)
+  }
+  catch (error) {
+    if (error.code === 'ENOENT') {
+      log('Output directory does not exist, creating: %s', outputDir)
+      await mkdir(outputDir, { recursive: true })
+    }
+    else {
+      throw error
+    }
+  }
+
   const filename = generateFilename(url)
   const filepath = resolve(outputDir, filename)
 

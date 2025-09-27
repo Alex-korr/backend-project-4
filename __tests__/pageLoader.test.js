@@ -253,9 +253,9 @@ describe('pageLoader', () => {
       .get('/test')
       .reply(200, htmlWithResources)
 
-    // Try to save to completely non-existent path
+    // Try to save to completely non-existent path (should fail due to permissions)
     await expect(load('https://example.com/test', '/completely/non/existent/path'))
       .rejects
-      .toThrow('Directory not found')
+      .toThrow('ENOENT')
   })
 })
