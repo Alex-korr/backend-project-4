@@ -2,6 +2,7 @@
 
 import { program } from 'commander'
 import { resolve } from 'node:path'
+import { mkdir, access } from 'node:fs/promises'
 import load from '../src/pageLoader.js'
 import debug from 'debug'
 
@@ -31,6 +32,20 @@ program
     log('Using %s output directory', options.output ? 'specified' : 'auto-generated')
 
     try {
+      // For CLI mode, create output directory if it doesn't exist
+      try {
+        await access(outputPath)
+      }
+      catch (error) {
+        if (error.code === 'ENOENT') {
+          log('Output directory does not exist, creating: %s', outputPath)
+          await mkdir(outputPath, { recursive: true })
+        }
+        else {
+          throw error
+        }
+      }
+
       const filePath = await load(url, outputPath)
       log('Operation completed successfully: %s', filePath)
       console.log(filePath)
