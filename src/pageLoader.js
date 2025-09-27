@@ -121,7 +121,8 @@ const createResourceDirectory = async (resourceDir) => {
   }
 }
 
-const processResourceType = async ($, selector, attrName, resourceDir, resourceDirName, baseUrl, pageUrl, downloadFn) => {
+const processResourceType = async (options) => {
+  const { $, selector, attrName, resourceDir, resourceDirName, baseUrl, pageUrl, downloadFn } = options
   const elements = selector
   const promises = []
   log('Found %d %s to process', elements.length, attrName)
@@ -221,9 +222,39 @@ const processAllResources = async (html, pageUrl, outputDir) => {
 
   // Process each type of resource
   const imageResults = await processImages($, resourceDir, resourceDirName, baseUrl, pageUrl)
-  const cssResults = await processResourceType($, $('link[rel="stylesheet"]'), 'href', resourceDir, resourceDirName, baseUrl, pageUrl, downloadTextResource)
-  const jsResults = await processResourceType($, $('script[src]'), 'src', resourceDir, resourceDirName, baseUrl, pageUrl, downloadTextResource)
-  const canonicalResults = await processResourceType($, $('link[rel="canonical"]'), 'href', resourceDir, resourceDirName, baseUrl, pageUrl, downloadTextResource)
+
+  const cssResults = await processResourceType({
+    $,
+    selector: $('link[rel="stylesheet"]'),
+    attrName: 'href',
+    resourceDir,
+    resourceDirName,
+    baseUrl,
+    pageUrl,
+    downloadFn: downloadTextResource,
+  })
+
+  const jsResults = await processResourceType({
+    $,
+    selector: $('script[src]'),
+    attrName: 'src',
+    resourceDir,
+    resourceDirName,
+    baseUrl,
+    pageUrl,
+    downloadFn: downloadTextResource,
+  })
+
+  const canonicalResults = await processResourceType({
+    $,
+    selector: $('link[rel="canonical"]'),
+    attrName: 'href',
+    resourceDir,
+    resourceDirName,
+    baseUrl,
+    pageUrl,
+    downloadFn: downloadTextResource,
+  })
 
   // Apply all replacements to HTML
   for (const { src, newSrc } of imageResults) {
