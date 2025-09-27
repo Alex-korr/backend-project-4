@@ -32,17 +32,20 @@ program
     log('Using %s output directory', options.output ? 'specified' : 'auto-generated')
 
     try {
-      // For CLI mode, create output directory if it doesn't exist
-      try {
-        await access(outputPath)
-      }
-      catch (error) {
-        if (error.code === 'ENOENT') {
-          log('Output directory does not exist, creating: %s', outputPath)
-          await mkdir(outputPath, { recursive: true })
+      // If user didn't specify output directory, create auto-generated one
+      // If user specified output directory, let pageLoader validate its existence
+      if (!options.output) {
+        try {
+          await access(outputPath)
         }
-        else {
-          throw error
+        catch (error) {
+          if (error.code === 'ENOENT') {
+            log('Auto-generated directory does not exist, creating: %s', outputPath)
+            await mkdir(outputPath, { recursive: true })
+          }
+          else {
+            throw error
+          }
         }
       }
 
