@@ -1,7 +1,7 @@
 // src/pageLoader.js
 import axios from 'axios'
 import * as cheerio from 'cheerio'
-import { writeFile, mkdir } from 'node:fs/promises'
+import { writeFile, mkdir, access } from 'node:fs/promises'
 import { resolve, join, extname } from 'node:path'
 import debug from 'debug'
 import { Listr } from 'listr2'
@@ -105,12 +105,19 @@ const downloadTextResource = async (resourceUrl) => {
   }
 }
 
-const createResourceDirectory = async (resourceDir) => {
+const createResourceDirectory = async (resourceDir, outputDir) => {
+  // Check if output directory exists before creating resource directory
   log('Creating resource directory: %s', resourceDir)
   try {
-    await mkdir(resourceDir, { recursive: true })
+    // First verify the output directory exists
+    await access(outputDir)
+    // If it exists, create the resource directory
+    await mkdir(resourceDir)
   }
   catch (error) {
+    if (error.code === 'ENOENT') {
+      throw new Error(`Directory not found: ${outputDir}`)
+    }
     if (error.code === 'EACCES') {
       throw new Error(`Permission denied: Cannot create directory ${resourceDir}`)
     }
@@ -214,7 +221,7 @@ const processAllResources = async (html, pageUrl, outputDir) => {
   const resourceDirName = generateResourceDirName(pageUrl)
   const resourceDir = join(outputDir, resourceDirName)
 
-  await createResourceDirectory(resourceDir)
+  await createResourceDirectory(resourceDir, outputDir)
 
   // Use cheerio to find resources, but keep original HTML for replacements
   const $ = cheerio.load(html)

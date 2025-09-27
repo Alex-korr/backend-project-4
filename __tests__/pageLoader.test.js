@@ -239,4 +239,23 @@ describe('pageLoader', () => {
     const resourcesDir = path.join(tmpDir, 'example-com-simple_files')
     await expect(fs.stat(resourcesDir)).rejects.toThrow()
   })
+
+  // Test 9: Test file system errors with non-existent directory
+  it('should handle file system errors when output directory does not exist', async () => {
+    const htmlWithResources = `<!DOCTYPE html>
+<html>
+<body>
+  <img src="/test.jpg" alt="test">
+</body>
+</html>`
+
+    nock('https://example.com')
+      .get('/test')
+      .reply(200, htmlWithResources)
+
+    // Try to save to completely non-existent path
+    await expect(load('https://example.com/test', '/completely/non/existent/path'))
+      .rejects
+      .toThrow('Directory not found')
+  })
 })
