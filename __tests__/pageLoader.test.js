@@ -79,4 +79,164 @@ describe('pageLoader', () => {
       .rejects
       .toThrow('Page not found (404): https://example.com/notfound')
   })
+
+  // Test 3: Download page with local resources
+  it('should download page with local resources and modify links', async () => {
+    const htmlWithResources = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Page</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <img src="/images/logo.png" alt="Logo">
+  <script src="/js/app.js"></script>
+</body>
+</html>`
+
+    const cssContent = 'body { color: blue; }'
+    const jsContent = 'console.log("Hello");'
+    const imageBuffer = Buffer.from('fake-png-data')
+
+    // Mock main page
+    nock('https://example.com')
+      .get('/test')
+      .reply(200, htmlWithResources)
+
+    // Mock resources
+    nock('https://example.com')
+      .get('/assets/style.css')
+      .reply(200, cssContent)
+      .get('/js/app.js')
+      .reply(200, jsContent)
+      .get('/images/logo.png')
+      .reply(200, imageBuffer)
+
+    const result = await load('https://example.com/test', tmpDir)
+
+    // Check that HTML file was created and links were modified
+    const savedHtml = await fs.readFile(result, 'utf-8')
+    expect(savedHtml).toContain('example-com-test_files')
+
+    // Check that resources directory was created
+    const resourcesDir = path.join(tmpDir, 'example-com-test_files')
+    await expect(fs.stat(resourcesDir)).resolves.toHaveProperty('isDirectory')
+
+    // Check that resources were downloaded
+    const cssFile = path.join(resourcesDir, 'example-com-assets-style.css')
+    const jsFile = path.join(resourcesDir, 'example-com-js-app.js')
+    const imgFile = path.join(resourcesDir, 'example-com-images-logo.png')
+
+    await expect(fs.stat(cssFile)).resolves.toHaveProperty('size')
+    await expect(fs.stat(jsFile)).resolves.toHaveProperty('size')
+    await expect(fs.stat(imgFile)).resolves.toHaveProperty('size')
+  }, 15000)
+
+  // Test 4: Handle server errors
+  it('should handle server errors (500)', async () => {
+    nock('https://example.com')
+      .get('/error')
+      .reply(500, 'Internal Server Error')
+
+    await expect(load('https://example.com/error', tmpDir))
+      .rejects
+      .toThrow('Server error (500): https://example.com/error')
+  })
+
+  // Test 5: Handle resource download errors
+  it('should handle resource download failures gracefully', async () => {
+    const htmlWithBrokenResource = `<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="/broken.css">
+</head>
+<body>
+  <h1>Test</h1>
+</body>
+</html>`
+
+    // Mock main page
+    nock('https://example.com')
+      .get('/test')
+      .reply(200, htmlWithBrokenResource)
+
+    // Mock failing resource
+    nock('https://example.com')
+      .get('/broken.css')
+      .reply(404, 'Not Found')
+
+    // This should throw an error when trying to download the broken resource
+    await expect(load('https://example.com/test', tmpDir))
+      .rejects
+      .toThrow('Resource not found (404)')
+  })
+
+  // Test 6: Handle HTML with mixed external and local resources
+  it('should only download local resources, ignore external ones', async () => {
+    const htmlWithMixedResources = `<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="https://external.com/style.css">
+  <link rel="stylesheet" href="/local/style.css">
+</head>
+<body>
+  <img src="https://external.com/logo.png" alt="External">
+  <img src="/local/image.png" alt="Local">
+</body>
+</html>`
+
+    const localCss = 'body { margin: 0; }'
+    const localImg = Buffer.from('local-image-data')
+
+    // Mock main page
+    nock('https://example.com')
+      .get('/mixed')
+      .reply(200, htmlWithMixedResources)
+
+    // Mock only local resources
+    nock('https://example.com')
+      .get('/local/style.css')
+      .reply(200, localCss)
+      .get('/local/image.png')
+      .reply(200, localImg)
+
+    const result = await load('https://example.com/mixed', tmpDir)
+    const savedHtml = await fs.readFile(result, 'utf-8')
+
+    // External links should remain unchanged
+    expect(savedHtml).toContain('https://external.com/style.css')
+    expect(savedHtml).toContain('https://external.com/logo.png')
+
+    // Local links should be modified
+    expect(savedHtml).toContain('example-com-mixed_files')
+  })
+
+  // Test 7: Simple test to cover additional error paths
+  it('should handle 403 forbidden error', async () => {
+    nock('https://example.com')
+      .get('/forbidden')
+      .reply(403, 'Forbidden')
+
+    await expect(load('https://example.com/forbidden', tmpDir))
+      .rejects
+      .toThrow('Access forbidden (403): https://example.com/forbidden')
+  })
+
+  // Test 8: Test HTML without resources (else branch)
+  it('should handle HTML without any resources', async () => {
+    const simpleHtml = '<html><body><h1>No resources here</h1></body></html>'
+
+    nock('https://example.com')
+      .get('/simple')
+      .reply(200, simpleHtml)
+
+    const result = await load('https://example.com/simple', tmpDir)
+    const savedHtml = await fs.readFile(result, 'utf-8')
+
+    expect(savedHtml).toBe(simpleHtml)
+
+    // Should not create resources directory
+    const resourcesDir = path.join(tmpDir, 'example-com-simple_files')
+    await expect(fs.stat(resourcesDir)).rejects.toThrow()
+  })
 })
