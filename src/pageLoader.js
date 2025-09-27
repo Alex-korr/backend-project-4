@@ -337,7 +337,7 @@ const saveProcessedHtml = async (filepath, processedHtml, outputDir) => {
   }
 }
 
-const load = async (url, outputDir) => {
+const load = async (url, outputDir = process.cwd()) => {
   log('Starting page load: %s', url)
   log('Output directory: %s', outputDir)
 
