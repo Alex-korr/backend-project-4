@@ -1,10 +1,1 @@
 console.log('Runtime script loaded from Hexlet!')
-
-// Some runtime initialization
-
-const HexletRuntime = {
-  version: '1.0.0',
-  init: function () {
-    console.log('Hexlet runtime initialized')
-  },
-}
