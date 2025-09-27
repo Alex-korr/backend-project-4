@@ -1,3 +1,4 @@
+/* eslint-env browser */
 console.log('Runtime script loaded from Hexlet!')
 
 // Some runtime initialization
