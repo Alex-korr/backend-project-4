@@ -159,4 +159,35 @@ describe('pageLoader', () => {
     expect(savedHtml).toContain('https://cdn2.hexlet.io/assets/menu.css')
     expect(savedHtml).toContain('https://js.stripe.com/v3/')
   })
+
+  // ERROR HANDLING TESTS (Minimal set)
+  describe('Error handling', () => {
+    beforeEach(async () => {
+      nock.cleanAll() // Clear all previous mocks
+    })
+
+    // Test 1: HTTP Errors (covers 404, 403, 500)
+    it('should handle HTTP errors with user-friendly messages', async () => {
+      // Test 404
+      nock('https://example.com')
+        .get('/not-found')
+        .reply(404, 'Page not found')
+
+      await expect(load('https://example.com/not-found', tmpDir))
+        .rejects
+        .toThrow('Page not found (404): https://example.com/not-found')
+    })
+
+    // Test 2: Network Errors (covers ENOTFOUND, ECONNREFUSED, ETIMEDOUT)
+    it('should handle network errors with user-friendly messages', async () => {
+      // Test DNS resolution failure
+      nock('https://nonexistent-domain.com')
+        .get('/page')
+        .replyWithError({ code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND nonexistent-domain.com' })
+
+      await expect(load('https://nonexistent-domain.com/page', tmpDir))
+        .rejects
+        .toThrow('Cannot resolve hostname: https://nonexistent-domain.com/page')
+    })
+  })
 })

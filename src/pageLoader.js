@@ -4,6 +4,7 @@ import * as cheerio from 'cheerio'
 import { writeFile, mkdir } from 'node:fs/promises'
 import { resolve, join, extname } from 'node:path'
 import debug from 'debug'
+import { Listr } from 'listr2'
 
 const log = debug('page-loader')
 
@@ -67,13 +68,41 @@ const isLocalResource = (resourceUrl, pageUrl) => {
 }
 
 const downloadImage = async (imageUrl) => {
-  const response = await axios.get(imageUrl, { responseType: 'arraybuffer' })
-  return response.data
+  try {
+    const response = await axios.get(imageUrl, { responseType: 'arraybuffer' })
+    return response.data
+  }
+  catch (error) {
+    if (error.response?.status === 404) {
+      throw new Error(`Image not found (404): ${imageUrl}`)
+    }
+    if (error.response?.status >= 500) {
+      throw new Error(`Server error (${error.response.status}): ${imageUrl}`)
+    }
+    if (error.code === 'ENOTFOUND') {
+      throw new Error(`Cannot resolve hostname for image: ${imageUrl}`)
+    }
+    throw new Error(`Failed to download image: ${imageUrl} - ${error.message}`)
+  }
 }
 
 const downloadTextResource = async (resourceUrl) => {
-  const response = await axios.get(resourceUrl)
-  return response.data
+  try {
+    const response = await axios.get(resourceUrl)
+    return response.data
+  }
+  catch (error) {
+    if (error.response?.status === 404) {
+      throw new Error(`Resource not found (404): ${resourceUrl}`)
+    }
+    if (error.response?.status >= 500) {
+      throw new Error(`Server error (${error.response.status}): ${resourceUrl}`)
+    }
+    if (error.code === 'ENOTFOUND') {
+      throw new Error(`Cannot resolve hostname for resource: ${resourceUrl}`)
+    }
+    throw new Error(`Failed to download resource: ${resourceUrl} - ${error.message}`)
+  }
 }
 
 const processAllResources = async (html, pageUrl, outputDir) => {
@@ -83,7 +112,18 @@ const processAllResources = async (html, pageUrl, outputDir) => {
 
   // Create directory for resources
   log('Creating resource directory: %s', resourceDir)
-  await mkdir(resourceDir, { recursive: true })
+  try {
+    await mkdir(resourceDir, { recursive: true })
+  }
+  catch (error) {
+    if (error.code === 'EACCES') {
+      throw new Error(`Permission denied: Cannot create directory ${resourceDir}`)
+    }
+    if (error.code === 'ENOSPC') {
+      throw new Error(`No space left on device: Cannot create directory ${resourceDir}`)
+    }
+    throw new Error(`Failed to create directory ${resourceDir}: ${error.message}`)
+  }
 
   // Use cheerio to find resources, but keep original HTML for replacements
   const $ = cheerio.load(html)
@@ -117,13 +157,25 @@ const processAllResources = async (html, pageUrl, outputDir) => {
     }
   }
 
-  // Wait for all images to download in parallel
+  // Wait for all images to download in parallel with progress
+  let imageResults = []
   if (imagePromises.length > 0) {
     log('Starting parallel download of %d images', imagePromises.length)
-  }
-  const imageResults = await Promise.all(imagePromises)
 
-  // Apply all replacements to HTML
+    const imageTasks = imagePromises.map((promise, index) => ({
+      title: `Downloading image ${index + 1}`,
+      task: () => promise,
+    }))
+
+    const imageTaskList = new Listr(imageTasks, {
+      concurrent: true,
+      rendererOptions: { collapse: false },
+    })
+
+    // Запускаем listr для красивого прогресса, но результаты берем из промисов
+    await imageTaskList.run()
+    imageResults = await Promise.all(imagePromises)
+  } // Apply all replacements to HTML
   for (const { src, newSrc } of imageResults) {
     modifiedHtml = modifiedHtml.replace(src, newSrc)
   }
@@ -264,9 +316,33 @@ const load = async (url, outputDir) => {
 
   // Download HTML
   log('Loading page content...')
-  const response = await axios.get(url)
-  const html = response.data
-  log('Page loaded successfully, size: %d bytes', html.length)
+  let response, html
+  try {
+    response = await axios.get(url)
+    html = response.data
+    log('Page loaded successfully, size: %d bytes', html.length)
+  }
+  catch (error) {
+    if (error.response?.status === 404) {
+      throw new Error(`Page not found (404): ${url}`)
+    }
+    if (error.response?.status === 403) {
+      throw new Error(`Access forbidden (403): ${url}`)
+    }
+    if (error.response?.status >= 500) {
+      throw new Error(`Server error (${error.response.status}): ${url}`)
+    }
+    if (error.code === 'ENOTFOUND') {
+      throw new Error(`Cannot resolve hostname: ${url}`)
+    }
+    if (error.code === 'ECONNREFUSED') {
+      throw new Error(`Connection refused: ${url}`)
+    }
+    if (error.code === 'ETIMEDOUT') {
+      throw new Error(`Request timeout: ${url}`)
+    }
+    throw new Error(`Network error: ${url} - ${error.message}`)
+  }
 
   // Check if there are any resources in HTML
   const hasResources = html.includes('<img') || html.includes('<link') || html.includes('<script')
@@ -286,8 +362,22 @@ const load = async (url, outputDir) => {
 
   // Save processed HTML
   log('Saving processed HTML to: %s', filepath)
-  await writeFile(filepath, processedHtml)
-  log('Operation completed successfully')
+  try {
+    await writeFile(filepath, processedHtml)
+    log('Operation completed successfully')
+  }
+  catch (error) {
+    if (error.code === 'ENOENT') {
+      throw new Error(`Directory not found: ${outputDir}`)
+    }
+    if (error.code === 'EACCES') {
+      throw new Error(`Permission denied: Cannot write to ${filepath}`)
+    }
+    if (error.code === 'ENOSPC') {
+      throw new Error(`No space left on device: ${filepath}`)
+    }
+    throw new Error(`File system error: ${error.message}`)
+  }
 
   return filepath
 }
