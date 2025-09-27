@@ -2,18 +2,10 @@
 
 import { program } from 'commander'
 import { resolve } from 'node:path'
-import { mkdir, access } from 'node:fs/promises'
 import load from '../src/pageLoader.js'
 import debug from 'debug'
 
 const log = debug('page-loader')
-
-// Generate directory name from URL
-const generateDirName = (url) => {
-  const urlObj = new URL(url)
-  const fullPath = `${urlObj.hostname}${urlObj.pathname}`.replace(/\/$/, '')
-  return fullPath.replace(/[^a-zA-Z0-9]/g, '-')
-}
 
 program
   .name('page-loader')
@@ -24,31 +16,13 @@ program
   .action(async (url, options) => {
     log('Page-loader started with URL: %s', url)
 
-    // Use URL-based directory name if no output specified
-    const defaultDir = generateDirName(url)
-    const outputPath = resolve(options.output || defaultDir)
+    // Use current directory if no output specified (download to current workdir)
+    const outputPath = resolve(options.output || process.cwd())
 
     log('Output directory: %s', outputPath)
-    log('Using %s output directory', options.output ? 'specified' : 'auto-generated')
+    log('Using %s output directory', options.output ? 'specified' : 'current workdir')
 
     try {
-      // If user didn't specify output directory, create auto-generated one
-      // If user specified output directory, let pageLoader validate its existence
-      if (!options.output) {
-        try {
-          await access(outputPath)
-        }
-        catch (error) {
-          if (error.code === 'ENOENT') {
-            log('Auto-generated directory does not exist, creating: %s', outputPath)
-            await mkdir(outputPath, { recursive: true })
-          }
-          else {
-            throw error
-          }
-        }
-      }
-
       const filePath = await load(url, outputPath)
       log('Operation completed successfully: %s', filePath)
       console.log(filePath)
