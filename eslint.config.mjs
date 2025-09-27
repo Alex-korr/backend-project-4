@@ -17,4 +17,13 @@ export default defineConfig([
       },
     },
   },
+  {
+    files: ['**/__tests__/__fixtures__/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
+    },
+  },
 ])
