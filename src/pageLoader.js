@@ -162,19 +162,27 @@ const processAllResources = async (html, pageUrl, outputDir) => {
   if (imagePromises.length > 0) {
     log('Starting parallel download of %d images', imagePromises.length)
 
-    const imageTasks = imagePromises.map((promise, index) => ({
-      title: `Downloading image ${index + 1}`,
-      task: () => promise,
-    }))
+    // Disable visual progress in test environment
+    if (process.env.NODE_ENV === 'test' || process.env.npm_lifecycle_event === 'test') {
+      // In test mode, just use Promise.all without visual progress
+      imageResults = await Promise.all(imagePromises)
+    }
+    else {
+      // In normal mode, use listr2 for visual progress
+      const imageTasks = imagePromises.map((promise, index) => ({
+        title: `Downloading image ${index + 1}`,
+        task: () => promise,
+      }))
 
-    const imageTaskList = new Listr(imageTasks, {
-      concurrent: true,
-      rendererOptions: { collapse: false },
-    })
+      const imageTaskList = new Listr(imageTasks, {
+        concurrent: true,
+        rendererOptions: { collapse: false },
+      })
 
-    // Запускаем listr для красивого прогресса, но результаты берем из промисов
-    await imageTaskList.run()
-    imageResults = await Promise.all(imagePromises)
+      // Run listr for visual progress, but get results from promises
+      await imageTaskList.run()
+      imageResults = await Promise.all(imagePromises)
+    }
   } // Apply all replacements to HTML
   for (const { src, newSrc } of imageResults) {
     modifiedHtml = modifiedHtml.replace(src, newSrc)
