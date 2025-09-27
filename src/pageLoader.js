@@ -331,11 +331,11 @@ const load = async (url, outputDir) => {
     log('Page loaded successfully, size: %d bytes', html.length)
   }
   catch (error) {
-    if (error.response?.status === 404) {
-      throw new Error(`Page not found (404): ${url}`)
-    }
     if (error.response?.status === 403) {
       throw new Error(`Access forbidden (403): ${url}`)
+    }
+    if (error.response?.status === 404) {
+      throw new Error(`Page not found (404): ${url}`)
     }
     if (error.response?.status >= 500) {
       throw new Error(`Server error (${error.response.status}): ${url}`)
